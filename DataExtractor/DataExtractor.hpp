@@ -9,6 +9,10 @@
 template <typename ReasoningType_, typename ValueType_>
 using MaybeValue = std::variant<ReasoningType_, ValueType_>;
 
+template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
+
+template<class T> struct always_false : std::false_type {};
 namespace detail
 {
     template <typename... Args>
@@ -34,21 +38,7 @@ namespace detail
 
 
     template<class ReturnType_, class ReasoningType_, class Extractor, class... Args_>
-    struct ConcreteExtractor
-    {
-        using Arguments = type_list<Args_...>;
-        using ReturnType = ReturnType_;
-        using SavedType = typename std::remove_pointer_t<ReturnType_>;
-        using ReasoningType = ReasoningType_;
-
-        Extractor extractor_;
-
-        template <class GetableContainer>
-        MaybeValue<ReasoningType_, ReturnType_> extract(const GetableContainer& container) const
-        {
-            return extractor_(container.template get<typename std::decay_t<Args_>>()...);
-        }
-    };
+    struct ConcreteExtractor;
 
     template<class ReturnType_, class ReasoningType_, class Extractor, class... Args_>
     struct ConcreteExtractor<ReturnType_, ReasoningType_, Extractor, type_list<Args_...>>
@@ -65,46 +55,41 @@ namespace detail
         }
     };
 
-    template<class ReasoningType_, class InputType, class ConcreteDataExtractor, class... PrevInChain>
-    struct Extractable : public Extractable<ReasoningType_, InputType, PrevInChain...>
+    template<class ReasoningType_, class InputType_, class ExtractorType_, class... PrevExtractorsInChain_>
+    struct Extractable : public Extractable<ReasoningType_, InputType_, PrevExtractorsInChain_...>
     {
-        using Base = Extractable<ReasoningType_, InputType, PrevInChain...>;
-        using SavedType = typename ConcreteDataExtractor::SavedType;
+        using Base = Extractable<ReasoningType_, InputType_, PrevExtractorsInChain_...>;
+        using SavedType = typename ExtractorType_::SavedType;
+        using ExtractorReturnType = typename ExtractorType_::ReturnType;
         using ReasoningType = ReasoningType_;
-        using OtherArguments = typename ConcreteDataExtractor::Arguments;
-        Extractable(const InputType& input,
-                    const ConcreteDataExtractor& extractor,
-                    PrevInChain... other) : Base(input, other...)
+
+        Extractable(const InputType_& input,
+                    const ExtractorType_& extractor,
+                    PrevExtractorsInChain_... other) : Base(input, other...)
         {
             if (!Base::reasoning)
             {
-                auto result = extractor.extract(static_cast<const Base&>(*this));
-                if (auto saved = std::get_if<SavedType*>(&result))
-                {
-                    saved_ = *saved;
-                }
-                else if (auto res = std::get_if<ReasoningType>(&result))
-                {
-                    Base::reasoning = *res;
-                }
-                else
-                {
-                    throw std::logic_error("WHATT?");
-                }
+                std::visit([&](auto&& arg){
+                    using T = std::decay_t<decltype(arg)>;
+                    if constexpr (std::is_same_v<T, std::decay_t<ExtractorReturnType>>)
+                        saved_ = arg;
+                    else if constexpr  (std::is_same_v<T, std::decay_t<ReasoningType_>>)
+                        Base::reasoning = arg;
+                    else
+                        static_assert(always_false<T>::value, "something went wrong when creating visitor");
+                }, extractor.extract(static_cast<const Base&>(*this)));
             }
         }
 
         template<class T>
         const T& get() const
         {
-            return this->Base::template get<T>();
+            if constexpr (std::is_same_v<std::decay_t<T>, SavedType>)
+                return *saved_;
+            else
+                return this->Base::template get<T>();
         }
 
-        template<>
-        const SavedType& get() const
-        {
-            return *saved_;
-        }
     private:
         SavedType* saved_;
     };
@@ -115,56 +100,47 @@ namespace detail
         explicit InputAndReasoning(const InputType_& input) : input_(input){}
 
         template<class T>
-        const T& get() const;
-
-        template<>
-        const InputType_& get() const
+        const T& get() const
         {
-            return input_;
+            if constexpr (std::is_same_v<std::decay_t<T>, InputType_>)
+                return input_;
+            else
+                static_assert(always_false<T>::value, "Extractable does not contain this type");
         }
-
         std::optional<ReasoningType_> reasoning{};
-
     private:
         const InputType_& input_;
     };
 
-    template<class ReasoningType_, class InputType_, class ConcreteDataExtractor>
-    struct Extractable<ReasoningType_, InputType_, ConcreteDataExtractor> : public InputAndReasoning<ReasoningType_, InputType_>
+    template<class ReasoningType_, class InputType_, class ExtractorType_>
+    struct Extractable<ReasoningType_, InputType_, ExtractorType_> : public InputAndReasoning<ReasoningType_, InputType_>
     {
         using Base = InputAndReasoning<ReasoningType_, InputType_>;
-        using SavedType = typename ConcreteDataExtractor::SavedType;
+        using SavedType = typename ExtractorType_::SavedType;
+        using ExtractorReturnType = typename ExtractorType_::ReturnType;
         using ReasoningType = ReasoningType_;
         Extractable(const InputType_& input,
-                    const ConcreteDataExtractor& extractor)
+                    const ExtractorType_& extractor)
                 : Base(input)
         {
-            auto result = extractor.extract(*this);
-
-            if (auto saved = std::get_if<SavedType*>(&result))
-            {
-                saved_ = *saved;
-            }
-            else if (auto res = std::get_if<ReasoningType>(&result))
-            {
-                Base::reasoning = *res;
-            }
-            else
-            {
-                throw std::logic_error("WHATT?");
-            }
+            std::visit([&](auto&& arg){
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<T, std::decay_t<ExtractorReturnType>>)
+                    saved_ = arg;
+                else if constexpr  (std::is_same_v<T, std::decay_t<ReasoningType_>>)
+                    Base::reasoning = arg;
+                else
+                    static_assert(always_false<T>::value, "something went wrong when creating visitor");
+            }, extractor.extract(static_cast<const Base&>(*this)));
         }
 
         template<class T>
         const T& get() const
         {
-            return this->Base::template get<T>();
-        }
-
-        template<>
-        const SavedType& get() const
-        {
-            return *saved_;
+            if constexpr (std::is_same_v<std::decay_t<T>, SavedType>)
+                return *saved_;
+            else
+                return this->Base::template get<T>();
         }
     private:
         SavedType* saved_;
@@ -205,11 +181,7 @@ namespace detail
 
 
     template<class ReturnType_, class Args>
-    struct BuilderRunner
-    {
-        template<class ExtractableType_, class BuilderType_>
-        static ReturnType_ run(ExtractableType_ extractable, BuilderType_ builder);
-    };
+    struct BuilderRunner;
 
     template<class ReturnType_, class... BuilderArgs>
     struct BuilderRunner<ReturnType_, type_list<BuilderArgs...>>
@@ -221,46 +193,53 @@ namespace detail
         }
     };
 
-
-    template<class ExtractableType_, class BuilderType_>
-    auto runBuilder(const ExtractableType_ extractable, BuilderType_ builder)
-    {
-        return BuilderRunner<
-                typename BuilderDataTypes<decltype(&BuilderType_::operator())>::ReturnType,
-                typename BuilderDataTypes<decltype(&BuilderType_::operator())>::Arguments>::run(
-                        extractable, std::forward<BuilderType_>(builder));
-    }
-
-
     template <class Extractor_, class... Extractors_>
     struct DataExtractor
     {
         using ReasoningType = typename Extractor_::ReasoningType;
-        std::tuple<Extractor_, Extractors_...> concreteExtractors_;
-        DataExtractor(Extractor_ ex, Extractors_... exs)
-            : concreteExtractors_{ex, exs...}
+        explicit DataExtractor(Extractor_ ex, Extractors_... exs)
+            : concreteExtractors_{std::move(ex), std::move(exs)...}
         {
+        }
+
+        template <class InputType_>
+        Extractable<ReasoningType, InputType_, Extractor_, Extractors_...> makeExtractable (InputType_ input) const
+        {
+            return {input, std::get<Extractor_>(concreteExtractors_), std::get<Extractors_>(concreteExtractors_)...};
         }
 
         template <class InputType_, class Builder_>
         MaybeValue<
                 ReasoningType,
                 typename BuilderDataTypes<decltype(&Builder_::operator())>::ReturnType>
-        extract(const InputType_& input, Builder_ builder)
+        extract(const InputType_& input, Builder_ builder) const
         {
-            Extractable<ReasoningType, InputType_, Extractor_, Extractors_...>
-            extractable(input,
-                    std::get<Extractor_>(concreteExtractors_), std::get<Extractors_>(concreteExtractors_)...);
-
-            if (extractable.reasoning)
-            {
+            auto extractable = makeExtractable(input);
+            if (extractable.reasoning) {
                 return *extractable.reasoning;
             }
-            else
-            {
-                return runBuilder(extractable, std::forward<Builder_>(builder));
+            else {
+                using ReturnType = typename BuilderDataTypes<decltype(&Builder_::operator())>::ReturnType;
+                using ArgumentsTypeList = typename BuilderDataTypes<decltype(&Builder_::operator())>::Arguments;
+                return BuilderRunner<ReturnType, ArgumentsTypeList>::run(extractable, std::forward<Builder_>(builder));
             }
         }
+
+        template<class InputType_, class BuilderReturnType_, class... BuilderArgs_>
+        MaybeValue<
+                ReasoningType,
+                BuilderReturnType_>
+        extract(const InputType_& input, BuilderReturnType_(builderFun)(BuilderArgs_...)) const
+        {
+            auto extractable = makeExtractable(input);
+            if (extractable.reasoning)
+                return *extractable.reasoning;
+            else
+                return builderFun(extractable.template get<BuilderArgs_>()...);
+        }
+
+    private:
+        std::tuple<Extractor_, Extractors_...> concreteExtractors_;
     };
 
     template <class... Extractors>
@@ -272,7 +251,7 @@ namespace detail
         template<class... Extractors_>
         static detail::DataExtractor<Extractors_...> build(Extractors_... extractors)
         {
-            return {extractors...};
+            return detail::DataExtractor<Extractors_...>{extractors...};
         }
     };
 

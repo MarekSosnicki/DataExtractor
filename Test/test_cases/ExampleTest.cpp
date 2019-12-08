@@ -86,8 +86,6 @@ TEST(DataExtractor, extractionOfParameters)
     callFunction(somePair, fun5);
 }
 
-template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
-template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
 struct InputStruct
 {
@@ -191,6 +189,13 @@ class PartExtractor
 //};
 //
 
+
+std::string builderFunction(std::string str, double dbl)
+{
+    std::cout << "I HAVE BUILD IT " << str << " dbl: " << dbl;
+    return str + "eeeee?";
+}
+
 TEST(DataExtraction, firstTries)
 {
 
@@ -280,6 +285,7 @@ TEST(DataExtraction, firstTries)
         return std::string("Great success");
     };
     auto result = dataExtractor.extract(in2, builder);
+    auto result2 = dataExtractor.extract(in2, &builderFunction);
 
 
 //    DataExtractor{
@@ -296,4 +302,32 @@ TEST(DataExtraction, firstTries)
 //        };
 //    };
 //    extractor.build(in1, builder);
+}
+
+template <class T>
+using StringOrResult = MaybeValue<std::string, T>;
+
+TEST(ExampleUsages, case1)
+{
+    double val = 7.1;
+    auto extractor = makeDataExtractor(
+            [&](const int& firstValue) -> StringOrResult<double*> { return &val;},
+            [](const double& secValue) -> StringOrResult<float*> {return "FAIL";});
+
+    auto result = extractor.extract(32, [](){ std::cout<<"Successfull extraction" << std::endl; return true;});
+
+    std::visit([](auto&& arg){std::cout<<"RESULT OF EXTRACTION: " << arg << std::endl;}, result); // FAIL will be printed
+}
+
+TEST(ExampleUsages, case2)
+{
+    double val = 7.1;
+    float valF = 3.1;
+
+    auto extractor = makeDataExtractor(
+            [&](const int& firstValue) -> StringOrResult<double*> { return &val;},
+            [&](const double& secValue) -> StringOrResult<float*> {return &valF;});
+    auto result = extractor.extract(32, [](){ std::cout<<"Successfull extraction" << std::endl; return true;});
+
+    std::visit([](auto&& arg){std::cout<<"RESULT OF EXTRACTION: " << arg << std::endl;}, result); // True will be printed
 }
