@@ -3,6 +3,9 @@
 #include <variant>
 #include <optional>
 #include <type_traits>
+
+#include <DataExtractor.hpp>
+
 #include "gmock/gmock.h"
 
 struct StructA
@@ -105,7 +108,7 @@ enum class ReasoningStatus
 };
 
 template <class T>
-using MaybeResult = std::variant<ReasoningStatus, T>;
+using MaybeResult = MaybeValue<ReasoningStatus, T>;
 
 MaybeResult<int*> intExtractor(const InputStruct& in, const std::string& strValue)
 {
@@ -152,222 +155,7 @@ private:
     double partPoint_;
 };
 
-template <typename... Args>
-struct type_list {};
 
-
-template<class ReturnType_, class ReasoningType_, class InputType_, class... Args_>
-struct ConcreteFunctionExtractor
-{
-    using FunctionType = std::variant<ReasoningType_, ReturnType_>(*)(const InputType_&, Args_...);
-    using InputType = InputType_;
-    using Arguments = type_list<Args_...>;
-    using ReturnType = ReturnType_;
-    using SavedType = typename std::remove_pointer_t<ReturnType_>;
-    using ReasoningType = ReasoningType_;
-
-    FunctionType extractor_ ;
-
-    template <class InputType, class GetableContainer>
-    std::variant<ReasoningType_, ReturnType_> extract(const InputType& input, const GetableContainer& container) const
-    {
-        return extractor_(input, container.template get<typename std::decay_t<Args_>>()...);
-    }
-};
-
-
-template<class ReturnType_, class ReasoningType_, class Extractor, class InputType_, class... Args_>
-struct ConcreteExtractor
-{
-    using InputType = InputType_;
-    using Arguments = type_list<Args_...>;
-    using ReturnType = ReturnType_;
-    using SavedType = typename std::remove_pointer_t<ReturnType_>;
-    using ReasoningType = ReasoningType_;
-
-    Extractor extractor;
-
-    template <class InputType, class GetableContainer>
-    auto extract(const InputType& input, const GetableContainer& container) const
-    {
-        return extractor(input, container.template get<typename std::decay_t<Args_>>()...);
-    }
-};
-
-template<class ReturnType_, class ReasoningType_, class Extractor, class InputType_, class... Args_>
-struct ConcreteExtractor<ReturnType_, ReasoningType_, Extractor, InputType_, type_list<Args_...>>
-{
-    using InputType = InputType_;
-    using Arguments = type_list<Args_...>;
-    using ReturnType = ReturnType_;
-    using SavedType = typename std::remove_pointer_t<ReturnType_>;
-    using ReasoningType = ReasoningType_;
-
-    Extractor extractor;
-
-
-    template <class InputType, class GetableContainer>
-    auto extract(const InputType& input, const GetableContainer& container) const
-    {
-        return extractor(input, container.template get<typename std::decay_t<Args_>>()...);
-    }
-};
-
-
-
-
-template<class ReasoningType_, class InputType, class ConcreteDataExtractor, class... PrevInChain>
-struct Extractable : public Extractable<ReasoningType_, InputType, PrevInChain...>
-{
-    using Base = Extractable<ReasoningType_, InputType, PrevInChain...>;
-    using SavedType = typename ConcreteDataExtractor::SavedType;
-    using ReasoningType = ReasoningType_;
-    using OtherArguments = typename ConcreteDataExtractor::Arguments;
-    Extractable(const InputType& input,
-                const ConcreteDataExtractor& extractor,
-                PrevInChain... other) : Base(input, other...)
-    {
-        if (!Base::reasoning)
-        {
-            auto result = extractor.extract(input, static_cast<const Base&>(*this));
-            if (auto saved = std::get_if<SavedType*>(&result))
-            {
-                saved_ = *saved;
-            }
-            else if (auto res = std::get_if<ReasoningType>(&result))
-            {
-                Base::reasoning = *res;
-            }
-            else
-            {
-                throw std::logic_error("WHATT?");
-            }
-        }
-    }
-
-    template<class T>
-    const T& get() const
-    {
-        return this->Base::template get<T>();
-    }
-
-    template<>
-    const SavedType& get() const
-    {
-        return *saved_;
-    }
-private:
-    SavedType* saved_;
-};
-
-template<class ReasoningType_, class InputType, class ConcreteDataExtractor>
-struct Extractable<ReasoningType_, InputType, ConcreteDataExtractor>
-{
-    using SavedType = typename ConcreteDataExtractor::SavedType;
-    using ReasoningType = ReasoningType_;
-    Extractable(const InputType& input,
-                const ConcreteDataExtractor& extractor)
-    {
-        auto result = extractor.extractor(input);
-
-        if (auto saved = std::get_if<SavedType*>(&result))
-        {
-            saved_ = *saved;
-        }
-        else if (auto res = std::get_if<ReasoningType>(&result))
-        {
-            reasoning = *res;
-        }
-        else
-        {
-            throw std::logic_error("WHATT?");
-        }
-    }
-
-    template<class T>
-    const T& get() const;
-
-    template<>
-    const SavedType& get() const
-    {
-        return *saved_;
-    }
-
-
-    std::optional<ReasoningType> reasoning{};
-
-private:
-    SavedType* saved_;
-};
-
-
-
-template <class ReturnType_, class ReasoningType_, class InputType_, class... Args_ >
-struct ExtractorTypeWrapper
-{
-
-};
-
-
-template <class ReturnType_, class ReasoningType_, class InputType_, class... Args_>
-ConcreteFunctionExtractor<
-        ReturnType_,
-        ReasoningType_,
-        typename std::decay_t<InputType_>,
-        Args_...>
-        makeExtractor(std::variant<ReasoningType_, ReturnType_>(inputFunction)(InputType_, Args_...))
-{
-    return {inputFunction};
-}
-
-template<class T>
-struct FunctionDataTypes
-{
-    using FunctionType = void;
-    using InputType = void;
-    using Arguments = void;
-    using ReturnType = void;
-    using SavedType = void;
-    using ReasoningType = void;
-};
-
-template<class ClassType_, class ReturnType_, class ReasoningType_, class InputType_, class... Args_>
-struct FunctionDataTypes<std::variant<ReasoningType_, ReturnType_>(ClassType_::*)(const InputType_&, Args_...) const>
-{
-    using FunctionType = std::variant<ReasoningType_, ReturnType_>(ClassType_::*)(const InputType_&, Args_...);
-    using InputType = InputType_;
-    using Arguments = type_list<Args_...>;
-    using ReturnType = ReturnType_;
-    using SavedType = typename std::remove_pointer_t<ReturnType_>;
-    using ReasoningType = ReasoningType_;
-};
-
-
-template <class ExtractorType_>
-ConcreteExtractor<
-        typename FunctionDataTypes<decltype(&ExtractorType_::operator())>::SavedType ,
-        typename FunctionDataTypes<decltype(&ExtractorType_::operator())>::ReasoningType ,
-        ExtractorType_,
-        typename FunctionDataTypes<decltype(&ExtractorType_::operator())>::InputType,
-        typename FunctionDataTypes<decltype(&ExtractorType_::operator())>::Arguments>
-makeExtractor(ExtractorType_ extractor)
-{
-    return {extractor};
-}
-
-
-template <class InputType_, class Extractor_, class... Extractors_>
-Extractable<typename Extractor_::ReasoningType, InputType_, Extractor_, Extractors_...>
-makeExtractableDetailed(InputType_ input, Extractor_ anyExtractor, Extractors_... extractors)
-{
-    return {input, anyExtractor, extractors...};
-}
-
-template <class InputType_, class... Extractors_>
-auto makeExtractable(InputType_ input, Extractors_... extractors) -> decltype(auto)
-{
-    return makeExtractableDetailed(input, makeExtractor(extractors)...);
-}
 
 
 
@@ -456,20 +244,43 @@ TEST(DataExtraction, firstTries)
 //                       ConcreteExtractor<int, decltype(intExtractor), std::string>{intExtractor},
 //                       ConcreteExtractor<std::string, decltype(stringExtractor)>{stringExtractor}};
 
-    static_assert(std::is_same_v<FunctionDataTypes<decltype(&doubleExtractor::operator())>::ReasoningType, ReasoningStatus>);
+    static_assert(std::is_same_v<detail::ExtractorDataTypes<decltype(&doubleExtractor::operator())>::ReasoningType, ReasoningStatus>);
 
-    auto extractableRes = makeExtractable(
+    auto extractableRes = makeExtractableRev(
                     in2,
-                    doubleExtractor{},
+                    stringExtractor,
                     intExtractor,
-                    stringExtractor
+                    doubleExtractor{}
                     );
+
+//    auto extractableRes = makeExtractable(
+//            in2,
+//            doubleExtractor{},
+//            intExtractor,
+//            stringExtractor
+//    );
 
     std::cout<<"extractable reasoning is " << static_cast<bool>(extractableRes.reasoning) << std::endl;
 
     std::cout<<"Extractable double : " <<  extractableRes.get<double>() << std::endl;
     std::cout<<"Extractable int : " <<  extractableRes.get<int>() << std::endl;
     std::cout<<"Extractable string : " <<  extractableRes.get<std::string>() << std::endl;
+
+
+    auto dataExtractor = makeDataExtractor(stringExtractor, intExtractor, doubleExtractor{});
+
+
+    auto builder = [](
+            const InputStruct& inputStruct,
+            const double& dbl,
+            const std::string& str,
+            int intiger) -> std::string
+    {
+        std::cout<<"Helloooo " << str<< " dbl: "<< dbl << " integer : " << intiger;
+        return std::string("Great success");
+    };
+    auto result = dataExtractor.extract(in2, builder);
+
 
 //    DataExtractor{
 //        intExtractor,

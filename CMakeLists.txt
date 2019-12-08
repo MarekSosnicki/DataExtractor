@@ -16,5 +16,5 @@ add_definitions( -DTEST_DATA_PATH="${testDataPath}")
 
 add_subdirectory(Test)
 include_directories(DataExtractor)
-add_executable(${PROJECT_NAME} main.cpp)
+add_executable(${PROJECT_NAME} main.cpp DataExtractor/DataExtractor.hpp)
 #target_link_libraries(${CMAKE_PROJECT_NAME} ${CMAKE_PROJECT_NAME}_Sources)
