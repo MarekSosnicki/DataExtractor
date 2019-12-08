@@ -126,10 +126,36 @@ MaybeResult<int*> intExtractor(const InputStruct& in, const std::string& strValu
 
 struct doubleExtractor
 {
+
+    doubleExtractor(const doubleExtractor& sec)
+        : partPoint_(sec.partPoint_)
+    {
+        std::cout << "DOUBLE EXTRACTOR : copy constructor" << std::endl;
+    }
+    doubleExtractor(doubleExtractor&& sec)
+            : partPoint_(sec.partPoint_)
+    {
+        std::cout << "DOUBLE EXTRACTOR : move constructor" << std::endl;
+    }
+
+    doubleExtractor& operator=(const doubleExtractor& sec)
+    {
+        std::cout << "DOUBLE EXTRACTOR : copy operator=" << std::endl;
+        this->partPoint_ = sec.partPoint_;
+        return *this;
+    }
+
+    doubleExtractor& operator=(doubleExtractor&& sec)
+    {
+        std::cout << "DOUBLE EXTRACTOR : move operator=" << std::endl;
+        this->partPoint_ = sec.partPoint_;
+        return *this;
+    }
+
     explicit doubleExtractor(double partPoint = 15.0)
         : partPoint_(partPoint)
     {
-
+        std::cout << "DOUBLE EXTRACTOR : constructor" << std::endl;
     }
 
     MaybeResult<double*> operator()(const InputStruct& in, const int& intValue, const std::string& strValue) const
@@ -196,25 +222,21 @@ std::string builderFunction(std::string str, double dbl)
     return str + "eeeee?";
 }
 
-TEST(DataExtraction, firstTries)
-{
 
-    std::string someString = "someString";
+std::string someString = "someString";
 
-    auto stringExtractor = [&someString](const InputStruct& in)->MaybeResult<std::string*>
-    {
-        if(in.value < 12)
-        {
-            std::cout<<"string extractor returning value" << std::endl;
+auto stringExtractor = [](const InputStruct &in) -> MaybeResult<std::string *> {
+    if (in.value < 12) {
+        std::cout << "string extractor returning value" << std::endl;
 
-            return &someString;
-        } else
-        {
-            std::cout<<"string extractor returning fail" << std::endl;
-            return ReasoningStatus::Fail1;
-        }
-    };
+        return &someString;
+    } else {
+        std::cout << "string extractor returning fail" << std::endl;
+        return ReasoningStatus::Fail1;
+    }
+};
 
+TEST(DataExtraction, firstTries) {
     InputStruct in1{3};
     InputStruct in2{11};
 
@@ -229,12 +251,12 @@ TEST(DataExtraction, firstTries)
 
     std::visit(overloaded{
             [](int *) { std::cout << "int pointer obtained" << std::endl; },
-            [](const ReasoningStatus &) { std::cout << "reasoning obtained"<< std::endl; },
+            [](const ReasoningStatus &) { std::cout << "reasoning obtained" << std::endl; },
     }, someRes);
 
     std::visit(overloaded{
-            [](int *) { std::cout << "int pointer obtained"<< std::endl; },
-            [](const ReasoningStatus &) { std::cout << "reasoning obtained"<< std::endl; },
+            [](int *) { std::cout << "int pointer obtained" << std::endl; },
+            [](const ReasoningStatus &) { std::cout << "reasoning obtained" << std::endl; },
     }, someRes2);
 
 
@@ -249,21 +271,29 @@ TEST(DataExtraction, firstTries)
 //                       ConcreteExtractor<int, decltype(intExtractor), std::string>{intExtractor},
 //                       ConcreteExtractor<std::string, decltype(stringExtractor)>{stringExtractor}};
 
-    static_assert(std::is_same_v<detail::ExtractorDataTypes<decltype(&doubleExtractor::operator())>::ReasoningType, ReasoningStatus>);
+    static_assert(
+            std::is_same_v<detail::ExtractorDataTypes<decltype(&doubleExtractor::operator())>::ReasoningType, ReasoningStatus>);
 
-    auto extractableRes = makeExtractableRev(
-                    in2,
-                    stringExtractor,
-                    intExtractor,
-                    doubleExtractor{}
-                    );
+//    auto extractableRes = makeExtractableRev(
+//                    in2,
+//                    stringExtractor,
+//                    intExtractor,
+//                    doubleExtractor{}
+//                    );
+}
 
-//    auto extractableRes = makeExtractable(
-//            in2,
-//            doubleExtractor{},
-//            intExtractor,
-//            stringExtractor
-//    );
+
+TEST(DataExtraction, extractableUsage)
+{
+    InputStruct in1{3};
+    InputStruct in2{11};
+
+    auto extractableRes = makeExtractable(
+            in2,
+            doubleExtractor{},
+            intExtractor,
+            stringExtractor
+    );
 
     std::cout<<"extractable reasoning is " << static_cast<bool>(extractableRes.reasoning) << std::endl;
 
@@ -272,9 +302,13 @@ TEST(DataExtraction, firstTries)
     std::cout<<"Extractable string : " <<  extractableRes.get<std::string>() << std::endl;
 
 
+}
+
+TEST(DataExtraction, dataExtractorUsage)
+{
+    InputStruct in1{3};
+    InputStruct in2{11};
     auto dataExtractor = makeDataExtractor(stringExtractor, intExtractor, doubleExtractor{});
-
-
     auto builder = [](
             const InputStruct& inputStruct,
             const double& dbl,
@@ -287,22 +321,8 @@ TEST(DataExtraction, firstTries)
     auto result = dataExtractor.extract(in2, builder);
     auto result2 = dataExtractor.extract(in2, &builderFunction);
 
-
-//    DataExtractor{
-//        intExtractor,
-//        doubleExtractor,
-//        stringExtractor
-//    } extractor;
-
-//    auto builder = [](const auto& in){
-//        return ResultStructure{
-//            in.get<int>(),
-//            in.get<double>(),
-//            in.get<std::string>()
-//        };
-//    };
-//    extractor.build(in1, builder);
 }
+
 
 template <class T>
 using StringOrResult = MaybeValue<std::string, T>;

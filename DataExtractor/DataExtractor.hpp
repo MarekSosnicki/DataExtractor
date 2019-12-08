@@ -27,13 +27,15 @@ namespace detail
         using SavedType = typename std::remove_pointer_t<ReturnType_>;
         using ReasoningType = ReasoningType_;
 
-        FunctionType extractor_ ;
+        ConcreteFunctionExtractor(FunctionType extractor) : extractor_(extractor) {}
 
         template <class GetableContainer>
         MaybeValue<ReasoningType_, ReturnType_> extract(const GetableContainer& container) const
         {
             return extractor_(container.template get<typename std::decay_t<Args_>>()...);
         }
+    private:
+        FunctionType extractor_ ;
     };
 
 
@@ -47,12 +49,16 @@ namespace detail
         using ReturnType = ReturnType_;
         using SavedType = typename std::remove_pointer_t<ReturnType_>;
         using ReasoningType = ReasoningType_;
-        Extractor extractor_;
+
+        ConcreteExtractor(Extractor extractor) : extractor_{std::move(extractor)}{}
+
         template <class GetableContainer>
         MaybeValue<ReasoningType_, ReturnType_> extract(const GetableContainer& container) const
         {
             return extractor_(container.template get<typename std::decay_t<Args_>>()...);
         }
+    private:
+        Extractor extractor_;
     };
 
     template<class ReasoningType_, class InputType_, class ExtractorType_, class... PrevExtractorsInChain_>
@@ -249,9 +255,9 @@ namespace detail
     struct BuildWithReversedExtractors<>
     {
         template<class... Extractors_>
-        static detail::DataExtractor<Extractors_...> build(Extractors_... extractors)
+        static detail::DataExtractor<Extractors_...> build(Extractors_&&... extractors)
         {
-            return detail::DataExtractor<Extractors_...>{extractors...};
+            return detail::DataExtractor<Extractors_...>{std::forward<Extractors_>(extractors)...};
         }
     };
 
@@ -260,16 +266,23 @@ namespace detail
     struct BuildWithReversedExtractors<Extractor, ExtractorsPrev_...>
     {
         template <class... ExtractorsNext_>
-        static auto build(Extractor extractor, ExtractorsPrev_... extractorsPrev, ExtractorsNext_... extractorsNext)
+        static auto build(
+                Extractor&& extractor,
+                ExtractorsPrev_&&... extractorsPrev,
+                ExtractorsNext_&&... extractorsNext)
         {
-            return BuildWithReversedExtractors<ExtractorsPrev_...>::build(extractorsPrev..., extractor, extractorsNext...);
+            return BuildWithReversedExtractors<ExtractorsPrev_&&...>
+                    ::build(std::forward<ExtractorsPrev_>(extractorsPrev)...,
+                            std::forward<Extractor>(extractor),
+                            std::forward<ExtractorsNext_>(extractorsNext)...);
         }
     };
 
     template <class... ConcreteExtractors_>
-    auto makeDataExtractorFromConcreteExtractors(ConcreteExtractors_... extractors) -> decltype(auto)
+    auto makeDataExtractorFromConcreteExtractors(ConcreteExtractors_&&... extractors) -> decltype(auto)
     {
-        return BuildWithReversedExtractors<ConcreteExtractors_...>::build(extractors...);
+        return BuildWithReversedExtractors<ConcreteExtractors_&&...>
+                ::build(std::forward<ConcreteExtractors_>(extractors)...);
     }
 } // namespace detail
 
@@ -288,13 +301,13 @@ makeExtractor(MaybeValue<ReasoningType_, ReturnType_>(inputFunction)(Args_...))
 
 template <class ExtractorType_>
 detail::ConcreteExtractor<
-        typename detail::ExtractorDataTypes<decltype(&ExtractorType_::operator())>::ReturnType ,
-        typename detail::ExtractorDataTypes<decltype(&ExtractorType_::operator())>::ReasoningType ,
-        ExtractorType_,
-        typename detail::ExtractorDataTypes<decltype(&ExtractorType_::operator())>::Arguments>
-makeExtractor(ExtractorType_ extractor)
+        typename detail::ExtractorDataTypes<decltype(&std::decay_t<ExtractorType_>::operator())>::ReturnType ,
+        typename detail::ExtractorDataTypes<decltype(&std::decay_t<ExtractorType_>::operator())>::ReasoningType ,
+        std::decay_t<ExtractorType_>,
+        typename detail::ExtractorDataTypes<decltype(&std::decay_t<ExtractorType_>::operator())>::Arguments>
+makeExtractor(ExtractorType_&& extractor)
 {
-    return {extractor};
+    return {std::forward<ExtractorType_>(extractor)};
 }
 
 
@@ -341,22 +354,22 @@ auto makeExtractableReversed(InputType_ input, ConcreteExtractors_... extractors
 }
 
 template <class InputType_, class... Extractors_>
-auto makeExtractableRev(InputType_ input, Extractors_... extractors) -> decltype(auto)
+auto makeExtractableRev(InputType_ input, Extractors_&&... extractors) -> decltype(auto)
 {
-    return makeExtractableReversed(input, makeExtractor(extractors)...);
+    return makeExtractableReversed(input, makeExtractor(std::forward<Extractors_>(extractors))...);
 }
 
 
 template <class InputType_, class... Extractors_>
 auto makeExtractable(InputType_ input, Extractors_... extractors) -> decltype(auto)
 {
-    return makeExtractableDetailed(input, makeExtractor(extractors)...);
+    return makeExtractableDetailed(input, makeExtractor(std::forward<Extractors_>(extractors))...);
 }
 
 template <class... Extractors_>
-auto makeDataExtractor(Extractors_... extractors) -> decltype(auto)
+auto makeDataExtractor(Extractors_&&... extractors) -> decltype(auto)
 {
-    return detail::makeDataExtractorFromConcreteExtractors(makeExtractor(extractors)...);
+    return detail::makeDataExtractorFromConcreteExtractors(makeExtractor(std::forward<Extractors_>(extractors))...);
 }
 
 
