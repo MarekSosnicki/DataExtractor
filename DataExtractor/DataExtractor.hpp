@@ -153,14 +153,7 @@ namespace detail
     };
 
     template<class T>
-    struct ExtractorDataTypes
-    {
-        using FunctionType = void;
-        using Arguments = void;
-        using ReturnType = void;
-        using SavedType = void;
-        using ReasoningType = void;
-    };
+    struct ExtractorDataTypes;
 
     template<class ClassType_, class ReturnType_, class ReasoningType_, class... Args_>
     struct ExtractorDataTypes<MaybeValue<ReasoningType_, ReturnType_>(ClassType_::*)(Args_...) const>
@@ -172,11 +165,7 @@ namespace detail
     };
     
     template<class T>
-    struct BuilderDataTypes
-    {
-        using Arguments = void;
-        using ReturnType = void;
-    };
+    struct BuilderDataTypes;
 
     template<class ClassType_, class ReturnType_, class... Args_>
     struct BuilderDataTypes<ReturnType_(ClassType_::*)(Args_...) const>
